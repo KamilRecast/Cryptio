@@ -14,94 +14,67 @@ const apiMovementsUrl = `https://app-api.cryptio.co/api/movement?transaction_has
 const apiAddLabelUrl = "https://app-api.cryptio.co/api/label";
 
 // Function to get headers for API requests
-function getHeaders() {
-  return {
-    "cryptio-api-key": cryptioApiKey,
-    "Content-Type": "application/json",
-  };
-}
+const getHeaders = () => ({
+  "cryptio-api-key": cryptioApiKey,
+  "Content-Type": "application/json",
+});
 
 // Function to fetch data from the Cryptio API
-async function getData() {
+const fetchTransactions = async () => {
   try {
-    const response = await axios.get(apiMovementsUrl, {
-      headers: getHeaders(),
-    });
-    const data = response.data;
-    return data;
+    const response = await axios.get(apiMovementsUrl, { headers: getHeaders() });
+    return response.data;
   } catch (error) {
-    console.error(
-      "Error during the request",
-      error.response ? error.response.data : error.message
-    );
+    console.error("Error fetching transactions:", error.response ? error.response.data : error.message);
   }
-}
+};
 
 // Function to apply a label to movements
-async function applyLabel(label, movementId) {
+const applyLabel = async (label, movementIds) => {
   try {
-    const data = {
-      movements: movementId,
-    };
     const url = `${apiAddLabelUrl}/${label}/apply`;
-    await axios.post(url, data, { headers: getHeaders() });
-    console.log(`${label === revenueLabel? 'Revenue' : 'Ignore'} label added`);
+    await axios.post(url, { movements: movementIds }, { headers: getHeaders() });
+    console.log(`${label === revenueLabel ? "Revenue" : "Ignore"} label added`);
   } catch (error) {
-    console.error("Error during the request ", error);
+    console.error("Error applying label:", error);
   }
-}
+};
 
-// Function to calculate volume difference and apply labels
-function CalcVolumeAndApplyLabel(groupedTransactions) {
-  groupedTransactions.forEach((transactions, assetId) => {
-    let volumeIn = 0;
-    let volumeOut = 0;
-    let idArray = [];
-    transactions.forEach((transaction) => {
-      if (transaction.direction === "in") {
-        volumeIn += parseFloat(transaction.volume);
-      } else if (transaction.direction === "out") {
-        volumeOut += parseFloat(transaction.volume);
+// Function to process and label transactions
+const processAndLabelTransactions = async () => {
+  try {
+    const transactions = await fetchTransactions();
+    const groupedTransactions = new Map();
+
+    transactions.data.forEach((transaction) => {
+      const assetId = transaction.asset;
+      if (!groupedTransactions.has(assetId)) {
+        groupedTransactions.set(assetId, []);
       }
-      idArray.push(transaction.id);
+      groupedTransactions.get(assetId).push(transaction);
     });
 
-    const volumeDifference = volumeIn - volumeOut;
-    if (volumeDifference === 0) {
-      applyLabel(ignoreLabel, idArray);
-    } else {
-      applyLabel(revenueLabel, idArray);
-    }
-    console.log(
-      `Volume difference for asset id ${assetId}: ${volumeDifference}`
-    );
-  });
-}
+    groupedTransactions.forEach((transactions, assetId) => {
+      let volumeIn = 0;
+      let volumeOut = 0;
+      const movementIds = transactions.map(transaction => {
+        if (transaction.direction === "in") {
+          volumeIn += parseFloat(transaction.volume);
+        } else if (transaction.direction === "out") {
+          volumeOut += parseFloat(transaction.volume);
+        }
+        return transaction.id;
+      });
 
-// Function to group transactions by asset id
-function groupTransactions(transactions) {
-  const groupedTransactions = new Map();
-  transactions.data.forEach((transaction) => {
-    const assetId = transaction.asset;
-    if (groupedTransactions.has(assetId)) {
-      groupedTransactions.get(assetId).push(transaction);
-    } else {
-      groupedTransactions.set(assetId, [transaction]);
-    }
-  });
-  return groupedTransactions;
-}
-
-// Function to update data by fetching, grouping, and applying labels
-async function updatingData() {
-  try {
-    const transactions = await getData();
-    const groupedTransactions = groupTransactions(transactions);
-    CalcVolumeAndApplyLabel(groupedTransactions);
+      const volumeDifference = volumeIn - volumeOut;
+      const label = volumeDifference === 0 ? ignoreLabel : revenueLabel;
+      applyLabel(label, movementIds);
+      console.log(`Volume difference for asset id ${assetId}: ${volumeDifference}`);
+    });
   } catch (error) {
-    console.error("Error during comparing assets: ", error);
+    console.error("Error processing transactions:", error);
   }
-}
+};
 
-// Call the updatingData function to start the process
-updatingData();
+// Call the function to start the process
+processAndLabelTransactions();
